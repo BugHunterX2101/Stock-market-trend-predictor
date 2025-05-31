@@ -1,0 +1,33 @@
+import sympy as sp
+
+def gram_schimdt_polynomials(polynomials, variable , interval):
+   a,b = interval
+   orthogonal = [];
+
+   for p in polynomials:
+    p_proj = p
+    for q in orthogonal:
+      inner_pq = sp.integrate(p_proj * q,(variable,a,b))
+      inner_qq = sp.integrate(q*q,(variable,a,b))
+      p_proj -= inner_pq * q
+    orthogonal.append(sp.simplify(p_proj))
+
+    orthonormal = [
+        sp.simplify(p / sp.sqrt(sp.integrate(p*p,(variable,a,b)))) 
+        for p in orthogonal
+    ]
+
+    return orthogonal , orthonormal
+
+#Exmaple Usage
+x = sp.symbols('x')
+polynomials = [1 , x , x**2]
+interval = (0,1)
+
+orthogonal_basis , orthogonal_basis = gram_schimdt_polynomials(polynomials , x , interval)
+print("Orthogonal basis:")
+for p in orthogonal_basis:
+  print(p)
+print("Orthonormal basis:")
+for p in orthogonal_basis:
+  print(p)
