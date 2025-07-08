@@ -56,14 +56,6 @@ The LSTM model uses:
 - 100-day lookback window for predictions
 - Adam optimizer with mean squared error loss
 
-## Deployment
-
-This app is ready for deployment on Streamlit Cloud:
-
-1. Push your code to a GitHub repository
-2. Connect your repository to Streamlit Cloud
-3. Deploy with the main file set to `app.py`
-
 ## Note
 
 Stock predictions are for educational purposes only and should not be used for actual trading decisions.
