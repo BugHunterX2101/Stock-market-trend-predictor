@@ -1,251 +1,327 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 import streamlit as st
+import pandas as pd
+import numpy as np
 import yfinance as yf
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from datetime import datetime, timedelta
 import os
 import warnings
 warnings.filterwarnings('ignore')
 
-# Configure matplotlib for streamlit
-plt.style.use('default')
+# Try to import tensorflow/keras with error handling
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import load_model
+    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.metrics import mean_squared_error, mean_absolute_error
+    KERAS_AVAILABLE = True
+except ImportError as e:
+    st.error(f"TensorFlow/Keras not available: {e}")
+    KERAS_AVAILABLE = False
 
-# App configuration
+# Page configuration
 st.set_page_config(
     page_title="Stock Trend Predictor",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Title and description
-st.title('📈 Stock Trend Predictor')
-st.markdown("---")
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .stButton > button {
+        width: 100%;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar for user inputs
-st.sidebar.header("Configuration")
-user_input = st.sidebar.text_input('Enter Stock Ticker', 'AAPL').upper()
-
-# Date range selection
-start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime('2010-01-01'))
-end_date = st.sidebar.date_input("End Date", value=pd.to_datetime('2019-12-31'))
-
-# Convert dates to strings
-start = start_date.strftime('%Y-%m-%d')
-end = end_date.strftime('%Y-%m-%d')
-
-# Data loading with error handling
 @st.cache_data
-def load_stock_data(ticker, start_date, end_date):
+def load_stock_data(ticker, period="5y"):
+    """Load stock data with error handling"""
     try:
-        data = yf.download(ticker, start_date, end_date)
+        stock = yf.Ticker(ticker)
+        data = stock.history(period=period)
         if data.empty:
             st.error(f"No data found for ticker {ticker}")
             return None
-        
-        # Handle MultiIndex columns if present
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.droplevel(1)
-        
         return data
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
+        st.error(f"Error loading data for {ticker}: {str(e)}")
         return None
 
-# Load data
-with st.spinner(f'Loading data for {user_input}...'):
-    df = load_stock_data(user_input, start, end)
+def calculate_moving_averages(data):
+    """Calculate moving averages"""
+    data = data.copy()
+    data['MA_100'] = data['Close'].rolling(window=100).mean()
+    data['MA_200'] = data['Close'].rolling(window=200).mean()
+    return data
 
-if df is not None and not df.empty:
-    # Display basic information
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Days", len(df))
-    with col2:
-        st.metric("Start Price", f"${df['Close'].iloc[0]:.2f}")
-    with col3:
-        st.metric("End Price", f"${df['Close'].iloc[-1]:.2f}")
+def create_price_chart(data, ticker):
+    """Create interactive price chart"""
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=(f'{ticker} Stock Price', 'Volume'),
+        vertical_spacing=0.1,
+        row_heights=[0.7, 0.3]
+    )
     
-    # Data description
-    st.subheader(f'📊 Data Summary for {user_input} ({start} to {end})')
-    st.write(df.describe())
+    # Price chart
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['Close'], name='Close Price', line=dict(color='blue')),
+        row=1, col=1
+    )
     
-    # Visualizations
-    st.subheader("📈 Stock Price Visualizations")
+    if 'MA_100' in data.columns and not data['MA_100'].isna().all():
+        fig.add_trace(
+            go.Scatter(x=data.index, y=data['MA_100'], name='MA 100', line=dict(color='orange')),
+            row=1, col=1
+        )
     
-    # Basic closing price chart
-    st.write("**Closing Price Over Time**")
-    fig1, ax1 = plt.subplots(figsize=(12, 6))
-    ax1.plot(df.index, df['Close'], color='blue', linewidth=1.5)
-    ax1.set_title(f'{user_input} Closing Price')
-    ax1.set_xlabel('Date')
-    ax1.set_ylabel('Closing Price ($)')
-    ax1.grid(True, alpha=0.3)
-    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
-    plt.tight_layout()
-    st.pyplot(fig1)
-    plt.close(fig1)
+    if 'MA_200' in data.columns and not data['MA_200'].isna().all():
+        fig.add_trace(
+            go.Scatter(x=data.index, y=data['MA_200'], name='MA 200', line=dict(color='red')),
+            row=1, col=1
+        )
     
-    # Moving averages chart
-    st.write("**Closing Price with 100-Day Moving Average**")
-    ma100 = df['Close'].rolling(100).mean()
-    fig2, ax2 = plt.subplots(figsize=(12, 6))
-    ax2.plot(df.index, df['Close'], label='Close Price', color='blue', alpha=0.7)
-    ax2.plot(df.index, ma100, label='100-Day MA', color='red', linewidth=2)
-    ax2.set_title(f'{user_input} Price with 100-Day Moving Average')
-    ax2.set_xlabel('Date')
-    ax2.set_ylabel('Price ($)')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
-    plt.tight_layout()
-    st.pyplot(fig2)
-    plt.close(fig2)
+    # Volume chart
+    fig.add_trace(
+        go.Bar(x=data.index, y=data['Volume'], name='Volume', marker_color='lightblue'),
+        row=2, col=1
+    )
     
-    # Multiple moving averages
-    st.write("**Closing Price with 100-Day & 200-Day Moving Averages**")
-    ma100 = df['Close'].rolling(100).mean()
-    ma200 = df['Close'].rolling(200).mean()
-    fig3, ax3 = plt.subplots(figsize=(12, 6))
-    ax3.plot(df.index, df['Close'], label='Close Price', color='blue', alpha=0.7)
-    ax3.plot(df.index, ma100, label='100-Day MA', color='red', linewidth=2)
-    ax3.plot(df.index, ma200, label='200-Day MA', color='green', linewidth=2)
-    ax3.set_title(f'{user_input} Price with Moving Averages')
-    ax3.set_xlabel('Date')
-    ax3.set_ylabel('Price ($)')
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
-    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
-    plt.tight_layout()
-    st.pyplot(fig3)
-    plt.close(fig3)
+    fig.update_layout(
+        title=f'{ticker} Stock Analysis',
+        xaxis_title='Date',
+        yaxis_title='Price ($)',
+        height=600,
+        showlegend=True
+    )
     
-    # Model prediction section
-    st.subheader("🤖 Stock Price Prediction")
+    return fig
+
+def prepare_lstm_data(data, lookback=100):
+    """Prepare data for LSTM model"""
+    if len(data) < lookback:
+        st.error(f"Not enough data. Need at least {lookback} days.")
+        return None, None, None
     
-    # Check if model exists
-    model_path = 'keras_model.h5'
-    if os.path.exists(model_path):
-        try:
-            # Import tensorflow here to avoid issues if not available
-            try:
-                import tensorflow as tf
-                from tensorflow.keras.models import load_model
-            except ImportError:
-                try:
-                    from keras.models import load_model
-                except ImportError:
-                    st.error("TensorFlow/Keras not available. Please install TensorFlow to use prediction features.")
-                    st.stop()
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data['Close'].values.reshape(-1, 1))
+    
+    # Create sequences
+    x_data, y_data = [], []
+    for i in range(lookback, len(scaled_data)):
+        x_data.append(scaled_data[i-lookback:i, 0])
+        y_data.append(scaled_data[i, 0])
+    
+    return np.array(x_data), np.array(y_data), scaler
+
+def create_sample_model():
+    """Create a simple LSTM model for demonstration"""
+    if not KERAS_AVAILABLE:
+        return None
+    
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense, Dropout
+    
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(100, 1)),
+        Dropout(0.2),
+        LSTM(50, return_sequences=True),
+        Dropout(0.2),
+        LSTM(50, return_sequences=True),
+        Dropout(0.2),
+        LSTM(50),
+        Dropout(0.2),
+        Dense(1)
+    ])
+    
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    return model
+
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">📈 Stock Trend Predictor</h1>', unsafe_allow_html=True)
+    
+    # Sidebar
+    st.sidebar.header("Configuration")
+    
+    # Stock selection
+    default_stocks = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META']
+    
+    ticker = st.sidebar.text_input("Enter Stock Ticker:", value="AAPL").upper()
+    
+    # Quick select buttons
+    st.sidebar.write("Quick Select:")
+    cols = st.sidebar.columns(2)
+    for i, stock in enumerate(default_stocks):
+        if cols[i % 2].button(stock, key=f"stock_{stock}"):
+            ticker = stock
+            st.rerun()
+    
+    # Time period selection
+    period = st.sidebar.selectbox(
+        "Select Time Period:",
+        ["1y", "2y", "5y", "10y", "max"],
+        index=2
+    )
+    
+    # Load data
+    if ticker:
+        with st.spinner(f"Loading data for {ticker}..."):
+            data = load_stock_data(ticker, period)
+        
+        if data is not None and not data.empty:
+            # Calculate moving averages
+            data = calculate_moving_averages(data)
             
-            # Load the model
-            with st.spinner('Loading prediction model...'):
-                model = load_model(model_path)
+            # Display basic info
+            col1, col2, col3, col4 = st.columns(4)
             
-            # Prepare data for prediction
-            data_training = pd.DataFrame(df['Close'][0:int(len(df)*0.70)])
-            data_testing = pd.DataFrame(df['Close'][int(len(df)*0.70):int(len(df))])
+            current_price = data['Close'].iloc[-1]
+            prev_price = data['Close'].iloc[-2] if len(data) > 1 else current_price
+            change = current_price - prev_price
             
-            # Scale the data
-            scaler = MinMaxScaler(feature_range=(0, 1))
-            data_training_array = scaler.fit_transform(data_training)
+            with col1:
+                st.metric("Current Price", f"${current_price:.2f}")
+            with col2:
+                st.metric("Daily Change", f"${change:.2f}", f"{change:.2f}")
+            with col3:
+                st.metric("Volume", f"{data['Volume'].iloc[-1]:,.0f}")
+            with col4:
+                st.metric("52W High", f"${data['High'].max():.2f}")
             
-            # Prepare test data
-            past_100_days = data_training.tail(100)
-            final_df = pd.concat([past_100_days, data_testing], ignore_index=True)
-            input_data = scaler.transform(final_df)
+            # Price chart
+            st.plotly_chart(create_price_chart(data, ticker), use_container_width=True)
             
-            # Create test sequences
-            x_test = []
-            y_test = []
+            # Moving averages analysis
+            st.subheader("📊 Moving Averages Analysis")
             
-            for i in range(100, input_data.shape[0]):
-                x_test.append(input_data[i-100:i])
-                y_test.append(input_data[i, 0])
-            
-            if len(x_test) == 0:
-                st.warning("Not enough data for prediction. Please select a longer date range.")
-            else:
-                x_test = np.array(x_test)
-                y_test = np.array(y_test)
+            if len(data) >= 200:
+                ma_100 = data['MA_100'].iloc[-1]
+                ma_200 = data['MA_200'].iloc[-1]
                 
-                # Make predictions
-                with st.spinner('Generating predictions...'):
-                    y_predicted = model.predict(x_test, verbose=0)
-                
-                # Inverse transform predictions
-                y_predicted = scaler.inverse_transform(y_predicted)
-                y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
-                
-                # Calculate metrics
-                mse = mean_squared_error(y_test, y_predicted)
-                mae = mean_absolute_error(y_test, y_predicted)
-                rmse = np.sqrt(mse)
-                
-                # Display metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("RMSE", f"{rmse:.2f}")
-                with col2:
-                    st.metric("MAE", f"{mae:.2f}")
-                with col3:
-                    st.metric("MSE", f"{mse:.2f}")
-                
-                # Plot predictions vs actual
-                st.write("**Predictions vs Actual Prices**")
-                fig4, ax4 = plt.subplots(figsize=(12, 6))
-                
-                # Create date index for test data
-                test_start_idx = int(len(df) * 0.70)
-                test_dates = df.index[test_start_idx + 100:]  # +100 because we need 100 days for prediction
-                
-                if len(test_dates) == len(y_test.flatten()):
-                    ax4.plot(test_dates, y_test.flatten(), 'b-', label='Actual Price', linewidth=2)
-                    ax4.plot(test_dates, y_predicted.flatten(), 'r-', label='Predicted Price', linewidth=2)
-                    ax4.set_title(f'{user_input} Stock Price Prediction')
-                    ax4.set_xlabel('Date')
-                    ax4.set_ylabel('Price ($)')
-                    ax4.legend()
-                    ax4.grid(True, alpha=0.3)
-                    plt.setp(ax4.xaxis.get_majorticklabels(), rotation=45)
-                    plt.tight_layout()
-                    st.pyplot(fig4)
-                    plt.close(fig4)
+                if not pd.isna(ma_100) and not pd.isna(ma_200):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**100-day MA:** ${ma_100:.2f}")
+                        if current_price > ma_100:
+                            st.success("Price is above 100-day MA (Bullish)")
+                        else:
+                            st.warning("Price is below 100-day MA (Bearish)")
                     
-                    # Prediction accuracy
-                    accuracy = 100 - (np.mean(np.abs((y_test - y_predicted) / y_test)) * 100)
-                    st.success(f"Model Accuracy: {accuracy:.2f}%")
+                    with col2:
+                        st.write(f"**200-day MA:** ${ma_200:.2f}")
+                        if current_price > ma_200:
+                            st.success("Price is above 200-day MA (Bullish)")
+                        else:
+                            st.warning("Price is below 200-day MA (Bearish)")
                 else:
-                    st.error("Date alignment issue in prediction visualization.")
+                    st.info("Not enough data for moving averages analysis")
+            else:
+                st.info("Need at least 200 days of data for moving averages analysis")
             
-        except Exception as e:
-            st.error(f"Error loading or running the model: {str(e)}")
-            st.info("Please ensure the keras_model.h5 file is present and properly trained.")
-    else:
-        st.warning("⚠️ Model file 'keras_model.h5' not found!")
-        st.info("Please run the training notebook (main.ipynb) first to generate the model file.")
-        
-        # Show sample prediction structure without model
-        st.write("**Sample Data Structure for Prediction:**")
-        data_training = pd.DataFrame(df['Close'][0:int(len(df)*0.70)])
-        data_testing = pd.DataFrame(df['Close'][int(len(df)*0.70):int(len(df))])
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("Training Data Shape:", data_training.shape)
-            st.write("Training Data Sample:")
-            st.write(data_training.head())
-        
-        with col2:
-            st.write("Testing Data Shape:", data_testing.shape)
-            st.write("Testing Data Sample:")
-            st.write(data_testing.head())
+            # LSTM Prediction Section
+            st.subheader("🤖 LSTM Price Prediction")
+            
+            if KERAS_AVAILABLE:
+                # Check for existing model
+                model_path = "keras_model.h5"
+                
+                if os.path.exists(model_path):
+                    try:
+                        with st.spinner("Loading LSTM model..."):
+                            model = load_model(model_path)
+                        
+                        # Prepare data for prediction
+                        x_data, y_data, scaler = prepare_lstm_data(data)
+                        
+                        if x_data is not None and len(x_data) > 0:
+                            # Make prediction
+                            last_100_days = x_data[-1].reshape(1, 100, 1)
+                            prediction = model.predict(last_100_days, verbose=0)
+                            predicted_price = scaler.inverse_transform(prediction)[0][0]
+                            
+                            price_change = predicted_price - current_price
+                            price_change_pct = (price_change / current_price) * 100
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Current Price", f"${current_price:.2f}")
+                            with col2:
+                                st.metric("Predicted Price", f"${predicted_price:.2f}")
+                            with col3:
+                                st.metric("Expected Change", f"${price_change:.2f}", f"{price_change_pct:.1f}%")
+                            
+                            # Model performance (if we have enough data)
+                            if len(x_data) > 100:
+                                test_size = min(100, len(x_data) // 4)
+                                x_test = x_data[-test_size:]
+                                y_test = y_data[-test_size:]
+                                
+                                predictions = model.predict(x_test, verbose=0)
+                                
+                                # Calculate metrics
+                                mse = mean_squared_error(y_test, predictions)
+                                mae = mean_absolute_error(y_test, predictions)
+                                rmse = np.sqrt(mse)
+                                
+                                st.write("**Model Performance Metrics:**")
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.write(f"RMSE: {rmse:.4f}")
+                                with col2:
+                                    st.write(f"MAE: {mae:.4f}")
+                                with col3:
+                                    st.write(f"MSE: {mse:.4f}")
+                    
+                    except Exception as e:
+                        st.error(f"Error loading model: {str(e)}")
+                        st.info("You can create a sample model using the button below.")
+                
+                else:
+                    st.warning("No trained model found. Please train a model first.")
+                    
+                    if st.button("Create Sample Model"):
+                        with st.spinner("Creating sample model..."):
+                            try:
+                                model = create_sample_model()
+                                if model:
+                                    # Train on current data
+                                    x_data, y_data, scaler = prepare_lstm_data(data)
+                                    if x_data is not None:
+                                        x_train = x_data.reshape(x_data.shape[0], x_data.shape[1], 1)
+                                        model.fit(x_train, y_data, epochs=1, batch_size=32, verbose=0)
+                                        model.save(model_path)
+                                        st.success("Sample model created and saved!")
+                                        st.rerun()
+                            except Exception as e:
+                                st.error(f"Error creating model: {str(e)}")
+            
+            else:
+                st.error("TensorFlow/Keras is required for LSTM predictions. Please install it.")
+            
+            # Data table
+            with st.expander("📋 View Raw Data"):
+                st.dataframe(data.tail(10))
+            
+            # Disclaimer
+            st.markdown("---")
+            st.warning("⚠️ **Disclaimer:** This tool is for educational purposes only. Stock predictions should not be used for actual trading decisions. Always consult with financial professionals before making investment decisions.")
 
-else:
-    st.error("Failed to load stock data. Please check the ticker symbol and try again.")
-    st.info("Make sure you enter a valid stock ticker symbol (e.g., AAPL, GOOGL, MSFT)")
-
-# Footer
-st.markdown("---")
-st.markdown("**Note:** This is a demonstration app. Stock predictions are for educational purposes only and should not be used for actual trading decisions.")
+if __name__ == "__main__":
+    main()
