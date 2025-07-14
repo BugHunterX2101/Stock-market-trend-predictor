@@ -1,7 +1,3 @@
-#!/usr/bin/env python3
-"""
-Test script to verify the stock prediction setup
-"""
 
 import sys
 import importlib
