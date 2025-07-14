@@ -26,9 +26,9 @@ def test_imports():
         try:
             module = importlib.import_module(package)
             version = getattr(module, '__version__', 'unknown')
-            print(f"✅ {package}: {version}")
+            print(f"{package}: {version}")
         except ImportError as e:
-            print(f"❌ {package}: {e}")
+            print(f"{package}: {e}")
             failed_imports.append(package)
     
     return failed_imports
