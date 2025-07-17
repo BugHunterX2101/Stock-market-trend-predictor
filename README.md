@@ -1,4 +1,4 @@
-# Stock Trend Predictor
+# Stock Market Trend Predictor
 
 A Streamlit web application for stock price analysis and prediction using LSTM neural networks.
 
