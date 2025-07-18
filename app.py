@@ -1,6 +1,3 @@
-import os
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1" 
 import warnings
 warnings.filterwarnings('ignore')
 
